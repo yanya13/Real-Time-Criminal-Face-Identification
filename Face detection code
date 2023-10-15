@@ -1,0 +1,151 @@
+from flask import Flask, render_template, Response
+import cv2
+import numpy as np
+import face_recognition
+
+app = Flask(__name__)
+
+from pushbullet import PushBullet
+
+# # Get the access token from Pushbullet.com
+access_token = "o.xniwkwDXj8rIrAZU4Ime7erM9M05ba13"
+
+import winsound
+from winotify import Notification, audio
+
+toast = Notification(app_id="windows app",
+                     title="Winotify Test Toast",
+                     duration="short",
+                     msg="New Notification!", )
+
+video_capture = cv2.VideoCapture(1)
+
+# load known faces
+madhav_image = face_recognition.load_image_file("../images/WIN_20230509_10_52_46_Pro.jpg")
+madhav_encoding = face_recognition.face_encodings(madhav_image)[0]
+
+yashveer_image = face_recognition.load_image_file("../images/IMG20231009103321.jpg")
+yashveer_encoding = face_recognition.face_encodings(yashveer_image)[0]
+
+hod_image = face_recognition.load_image_file("../images/Hod.jpg")
+hod_encoding = face_recognition.face_encodings(hod_image)[0]
+
+swatank_image = face_recognition.load_image_file("../images/IMG20231009103324.jpg")
+swatank_encoding = face_recognition.face_encodings(swatank_image)[0]
+
+vaibhav_image = face_recognition.load_image_file("../images/Vaibhav Sir.jpg")
+vaibhav_encoding = face_recognition.face_encodings(vaibhav_image)[0]
+
+jaya_image = face_recognition.load_image_file("../images/jaya it.jpg")
+jaya_encoding = face_recognition.face_encodings(jaya_image)[0]
+
+virat_image = face_recognition.load_image_file("../images/Virat tiwari.jpg")
+virat_encoding = face_recognition.face_encodings(virat_image)[0]
+
+known_face_encoding = [madhav_encoding, yashveer_encoding, swatank_encoding, vaibhav_encoding, hod_encoding,
+                       jaya_encoding, virat_encoding]
+known_face_names = ["Madhav", "Yashveer ", "Swatank", "Vaibhav", "HOD SIR", "jaya ", "Virat"]
+
+dataset = [["Madhav", "B.Tech", "20", "Indian", "46"], ["Yashveer hazimula", "Terrorist", "20", "Pakistani", "26"],
+           ["Swatank khan", "Terrorist", "20", "Nepal", "16"],
+           ["Md Vaibhav ", "Hizbulla leader", "20", "Bangladesh", "36"], ["HoD sir", "B.Tech", "70", "Indian", "100"],
+           ["Jaya IT", "B.Tech", "70", "Indian", "100"], ["Virat tiwari", "isis terrorist", "sd70", "Bangladeshi", "100"]]
+
+# list of persons
+persons = known_face_names.copy()
+
+face_locations = []
+face_encodings = []
+
+# code for face box
+
+face_classifier = cv2.CascadeClassifier(
+    cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+
+
+def detect_bounding_box(vid):
+    gray_image = cv2.cvtColor(vid, cv2.COLOR_BGR2GRAY)
+    faces = face_classifier.detectMultiScale(gray_image, 1.1, 5, minSize=(40, 40))
+    for (x, y, w, h) in faces:
+        cv2.rectangle(vid, (x, y), (x + w, y + h), (0, 255, 0), 4)
+    return faces
+
+
+criminal_found = []
+
+
+def pushbullet_notify(idx):
+    if idx not in criminal_found:
+        criminal_found.append(idx)
+        # Get the instance using access token
+        pb = PushBullet(access_token)
+
+        # Send the data by passing the main title
+        # and text to be send
+        winsound.Beep(1500, 1000)
+        push = pb.push_note(known_face_names[idx] + " found",
+                            "Id :" + dataset[idx][4] + "\n" + "Crime: " + dataset[idx][1] + "\n" + "Age: " + dataset[idx][2] + "\n" + "Nationality: " + dataset[idx][3] + "\n")
+
+
+process_this_frame = True
+
+
+def gen_frames():
+    while True:
+
+        _, frame = video_capture.read()  # read frames from the video
+        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
+        rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
+
+        # recognize faces
+        face_locations = face_recognition.face_locations(rgb_small_frame)
+        face_encodings = face_recognition.face_encodings(rgb_small_frame, face_locations)
+
+        faces = detect_bounding_box(frame)
+
+        for face_encoding in face_encodings:
+            matches = face_recognition.compare_faces(known_face_encoding, face_encoding)
+            face_distance = face_recognition.face_distance(known_face_encoding, face_encoding)
+            best_match_index = np.argmin(face_distance)
+
+            if matches[best_match_index]:
+                name = known_face_names[best_match_index]
+                # add text to screen
+                if name in known_face_names:
+                    # add_text_to_frame(frame, name)
+
+                    # code to add text
+                    font = cv2.FONT_HERSHEY_SIMPLEX
+                    bottomLeftCornerText = (10, 100)
+                    fontScale = 0.5
+                    fontColor = (237, 9, 9)
+                    thickness = 1
+                    lineType = 2
+                    cv2.putText(frame, name + " found", bottomLeftCornerText, font, fontScale, fontColor, thickness,
+                                lineType)
+
+
+                    # code for pushbullet
+                    pushbullet_notify(best_match_index)
+        cv2.imshow("Window", frame)
+
+        if cv2.waitKey(1) & 0xFF == ord("q"):
+            break
+
+    video_capture.release()
+    cv2.destroyAllWindows()
+
+
+@app.route('/')
+def index():
+    return render_template('./index.html')
+
+
+@app.route('/video_feed')
+# @app.route('/')
+def video_feed():
+    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+
+if __name__ == '_main_':
+    app.run(debug=True)
